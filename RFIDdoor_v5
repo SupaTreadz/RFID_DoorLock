@@ -1,0 +1,379 @@
+
+#include <Servo.h>
+#include <Adafruit_NeoPixel.h>
+
+Servo lockServo;  // create servo object to control a servo
+boolean doorLocked = false;
+int RFIDResetPin = 7;
+//Register your RFID tags here
+char Sam[13] = "750048140128";
+char Sam2[13] = "7C0055EEF83F";
+char Michael[13] = "75004802B58A";
+char Jason[13] = "75004857FB91";
+char Spare[13] = "750048142E07";
+int buttonPin = 8;
+int buttonState = 0;
+int buttonOld = 0;
+boolean countdown = true;
+boolean ignoreReset = false;
+unsigned long newTime = 0;
+unsigned long UnlockTime = 0;
+int speakerPin = 11;
+int doorSensorPin = 3;
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(25, 6, NEO_GRB + NEO_KHZ800);
+
+void setup()
+{
+  Serial.begin(9600);
+  pinMode(RFIDResetPin, OUTPUT);
+  digitalWrite(RFIDResetPin, HIGH);
+  strip.begin();
+  strip.show();
+  pinMode(doorSensorPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(doorSensorPin), doorOpen, RISING);
+  pinMode(buttonPin, INPUT_PULLUP);
+  lock();
+  buttonOld = digitalRead(buttonPin);
+}
+
+void loop()
+{
+  Serial.println(digitalRead(5));
+  Serial.println("start loop");
+  strip.setPixelColor(24, strip.Color(0, 0, 255/2));
+  strip.show();
+  Serial.println("Door: ");
+  Serial.println(doorLocked);
+  
+  if(doorLocked)
+  {
+    rainbowCycle();
+  }
+  else
+  {
+    allSet(strip.Color(0,0,0));
+  }
+  
+  if(!ignoreReset)
+  {
+    Serial.println("not ignoring reset");
+    buttonState = digitalRead(buttonPin);
+    Serial.print("Button State: ");
+    Serial.println(buttonState);
+    Serial.print("Button old: ");
+    Serial.println(buttonOld);
+    if(buttonState != buttonOld)
+    {
+     Serial.println("in reset function");
+     if(!doorLocked)
+     {
+       flash2(strip.Color(255,0,0));
+     }
+     else
+     {
+       flash2(strip.Color(0,255,0));
+     }
+     buttonOld = buttonState;
+     changeLock();
+     Serial.println("Reset Button");
+    }
+  }
+  
+  char tagString[13];
+  int index = 0;
+  boolean reading = false;
+  //Serial.println("Before read");
+  while(Serial.available())
+  {
+    int readByte = Serial.read(); //read next available byte
+    
+    if(readByte == 2) reading = true; //begining of tag
+    if(readByte == 3) reading = false; //end of tag
+    
+    if(reading && readByte != 2 && readByte != 10 && readByte != 13){
+      //store the tag
+      tagString[index] = readByte;
+      index ++;
+    }
+  }
+  Serial.println(tagString);
+  checkTag(tagString); //Check if it is a match
+  clearTag(tagString); //Clear the char of all value
+  resetReader(); //Reset the RFID reader
+}
+void acceptTone()
+{
+  //strip.setPixelColor(24, 0, 255, 0);
+  tone(speakerPin, 2610);
+  delay(200);
+  tone(speakerPin, 4150);
+  delay(200);
+  noTone(speakerPin);
+  //strip.setPixelColor(24, 0, 0, 0);
+}
+void rejectTone()
+{
+  tone(speakerPin, 1000);
+  delay(200);
+  tone(speakerPin, 370);
+  delay(200);
+  noTone(speakerPin);
+}
+void checkTag(char tag[])
+{
+  if(strlen(tag) == 0) return; //empty, no need to contunue
+
+  if(compareTag(tag, Sam))
+  {
+    Serial.println("Tag Match - Sam");
+    flash2(strip.Color(0,255,0));
+    strip.show();
+    acceptTone();
+    changeLock();
+  }
+  else if(compareTag(tag, Sam2))
+  {
+    Serial.println("Tag Match - Sam2");
+    flash2(strip.Color(0,255,0));
+    strip.show();
+    acceptTone();
+    changeLock();
+  }
+  else if(compareTag(tag, Michael))
+  {
+    Serial.println("Tag Match - Michael");
+    flash2(strip.Color(0,255,0));
+    strip.show();
+    acceptTone();
+    changeLock();
+  }
+  else if(compareTag(tag, Jason))
+  {
+    Serial.println("Tag Match - Jason");
+    flash2(strip.Color(0,255,0));
+    strip.show();
+    acceptTone();
+    changeLock();
+  } 
+  else if(compareTag(tag, Spare))
+  {
+    Serial.println("Tag Match - Spare RFID Tag");
+    flash2(strip.Color(0,255,0));
+    strip.show();
+    acceptTone();
+    changeLock();
+  } 
+  else
+  {
+    Serial.print("No match for tag: ");
+    Serial.println(tag); //read out any unknown tag
+    flash2(strip.Color(255,0,0));
+    strip.show();
+    rejectTone();
+    lock();
+  }
+}
+void resetReader()
+{
+  digitalWrite(RFIDResetPin, LOW);
+  digitalWrite(RFIDResetPin, HIGH);
+  delay(150);
+}
+
+void clearTag(char one[])
+{
+  for(int i = 0; i < strlen(one); i++){
+    one[i] = 0;
+  }
+}
+boolean compareTag(char one[], char two[])
+{
+  if(strlen(one) == 0) return false; //empty
+
+  for(int i = 0; i < 12; i++){
+    if(one[i] != two[i]) return false;
+  }
+
+  return true; //no mismatches
+}
+void lockCountdown(uint8_t wait) 
+{
+  allSet(strip.Color(0,255,0));
+  doorLocked = false;
+  Serial.println("Lock Countdown");
+  int buttonTrack = digitalRead(buttonPin);
+  for(uint16_t i=0; i<strip.numPixels(); i++) 
+  {
+  //if button is pressed, countdown aborts
+    if(digitalRead(buttonPin) != buttonTrack)
+    {
+      Serial.println("In break lock");
+      buttonTrack = digitalRead(buttonPin);
+      doorLocked = false;
+      changeLock();
+      return;
+    }
+    Serial.println("After break");
+    strip.setPixelColor(i, strip.Color(255,0,0));
+    if(i==0)
+    {
+      strip.setPixelColor(strip.numPixels()-1, strip.Color(0,0,0));
+    }
+    else
+    {
+      strip.setPixelColor(i-1, strip.Color(0,0,0));
+    }
+    strip.show();
+    delay(1000);
+  }
+  doorLocked = false;
+  Serial.println("calling change from countdown");
+  changeLock();
+  
+  tone(speakerPin, 1000);
+  delay(200);
+  tone(speakerPin, 370);
+  delay(200);
+  tone(speakerPin, 5000);
+  delay(200);
+  noTone(speakerPin);
+}
+void flash(uint32_t c)
+{
+  allSet(c);
+  delay(50);
+  allSet(strip.Color(0, 0, 0));
+  delay(50);
+  allSet(c);
+  delay(50);
+  allSet(strip.Color(0, 0, 0));
+  delay(50);
+  allSet(c);
+  delay(50);
+  allSet(strip.Color(0, 0, 0));
+  delay(50);
+}
+void flash2(uint32_t c)
+{
+  allSet2(c);
+  delay(50);
+  allSet2(strip.Color(0, 0, 0));
+  delay(50);
+  allSet2(c);
+  delay(50);
+  allSet2(strip.Color(0, 0, 0));
+  delay(50);
+  allSet2(c);
+  delay(50);
+  allSet2(strip.Color(0, 0, 0));
+  delay(50);
+}
+void flash3(uint32_t c)
+{
+  tone(speakerPin, 300);
+  allSet2(c);
+  delay(50);
+  allSet2(strip.Color(0, 0, 0));
+  delay(50);
+  noTone(speakerPin);
+  allSet2(c);
+  delay(50);
+  allSet2(strip.Color(0, 0, 0));
+  delay(50);
+  allSet2(c);
+  delay(50);
+  allSet2(strip.Color(0, 0, 0));
+  delay(50);
+  
+}
+void allSet(uint32_t c)
+{
+  //altered to exclude end pixel in strip
+  for(uint16_t i=0; i<strip.numPixels()-1; i++) 
+  {
+      strip.setPixelColor(i, c);
+  }
+  strip.show(); 
+}
+void allSet2(uint32_t c)
+{
+  for(uint16_t i=0; i<strip.numPixels(); i++) 
+  {
+      strip.setPixelColor(i, c);
+  }
+  strip.show(); 
+}
+void rainbowCycle() 
+{
+  strip.setPixelColor(24, 0, 0, 255/2);
+  //altered to exclude end pixel in strip
+  lockServo.detach();
+  uint16_t i, j;
+  for(j=0; j<256*5; j++) 
+  { // 5 cycles of all colors on wheel
+    for(i=0; i< strip.numPixels()-1; i++) 
+    {
+      strip.setBrightness(130/2);
+      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+    }
+    strip.show();
+  }
+}
+uint32_t Wheel(byte WheelPos) 
+{
+  if(WheelPos < 85) 
+  {
+    return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
+  }
+  else if(WheelPos < 170) 
+  {
+    WheelPos -= 85;
+    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
+  }
+  else
+  {
+    WheelPos -= 170;
+    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  }
+}
+void lock()
+{
+  lockServo.attach(9);
+  lockServo.write(0);
+  Serial.println("Locked");
+  doorLocked = true;
+  delay(500);
+  lockServo.detach();
+}
+void changeLock()
+{
+  Serial.println("Change Lock");
+  lockServo.attach(9);
+  if(doorLocked)
+  {
+    lockServo.write(100);
+    Serial.println("Unlocked");
+    doorLocked = false;
+    lockCountdown(1000);
+    buttonOld = digitalRead(buttonPin);
+    delay(500);
+  }
+  else
+  {
+    lockServo.write(0);
+    Serial.println("Locked");
+    doorLocked = true;
+    delay(500);
+  }
+  lockServo.detach();
+}
+void doorOpen()
+{
+  Serial.println("Door Open");
+  while(digitalRead(doorSensorPin)==HIGH)
+  {
+    flash3(strip.Color(255,127,0)); 
+    delay(500);
+  }
+}
