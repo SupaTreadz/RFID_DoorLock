@@ -370,10 +370,15 @@ void changeLock()
 }
 void doorOpen()
 {
+  lockServo.detach();
   Serial.println("Door Open");
   while(digitalRead(doorSensorPin)==HIGH)
   {
     flash3(strip.Color(255,127,0)); 
     delay(500);
   }
+  delay(500);
+  Serial.println("Leaving Interrupt");
+  allSet(strip.Color(0,255,0));
+  lockServo.attach(9);
 }
